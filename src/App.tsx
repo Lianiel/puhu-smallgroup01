@@ -136,18 +136,32 @@ function PrayerWallView() {
 
     setIsSubmitting(true);
     setError('');
+    
+    // Add a timeout to prevent hanging if Firestore connection fails silently
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("連線逾時，請檢查網路或資料庫設定")), 10000)
+    );
+
     try {
-      await addDoc(collection(db, 'prayer_requests'), {
-        author: newAuthor.trim(),
-        content: newContent.trim(),
-        createdAt: serverTimestamp()
-      });
+      await Promise.race([
+        addDoc(collection(db, 'prayer_requests'), {
+          author: newAuthor.trim(),
+          content: newContent.trim(),
+          createdAt: serverTimestamp()
+        }),
+        timeoutPromise
+      ]);
+      
       setNewAuthor('');
       setNewContent('');
       setIsAdding(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error adding prayer:", err);
-      setError("新增失敗，請檢查資料庫權限設定。");
+      if (err.message === "連線逾時，請檢查網路或資料庫設定") {
+        setError(err.message);
+      } else {
+        setError("新增失敗，請確認 Firebase Firestore 是否已建立且規則設為允許寫入。");
+      }
     } finally {
       setIsSubmitting(false);
     }
