@@ -68,7 +68,7 @@ export default function App() {
       <main className="p-4 max-w-md mx-auto">
         {currentView === 'home' && <HomeView onViewChange={setCurrentView} />}
         {currentView === 'prayer_requests' && <PrayerWallView />}
-        {currentView === 'devotions' && <PlaceholderView title="每日活水推送經文" icon={<BookOpen size={48} className="text-blue-500 mb-4" />} />}
+        {currentView === 'devotions' && <DevotionsView />}
         {currentView === 'quiz' && <PlaceholderView title="每日活水經文複習測驗" icon={<CheckSquare size={48} className="text-green-500 mb-4" />} />}
         {currentView === 'schedule' && <ServiceScheduleView />}
       </main>
@@ -110,10 +110,11 @@ function PrayerWallView() {
   const [newContent, setNewContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // 3. 即時更新 (Real-time updates)
   useEffect(() => {
-    const q = query(collection(db, 'prayer_requests'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'prayers'), orderBy('createdAt', 'desc'));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const prayerData: PrayerRequest[] = [];
@@ -144,7 +145,7 @@ function PrayerWallView() {
 
     try {
       await Promise.race([
-        addDoc(collection(db, 'prayer_requests'), {
+        addDoc(collection(db, 'prayers'), {
           author: newAuthor.trim(),
           content: newContent.trim(),
           createdAt: serverTimestamp()
@@ -167,9 +168,20 @@ function PrayerWallView() {
     }
   };
 
-  const formatDate = (timestamp: Timestamp | null) => {
+  const formatDate = (timestamp: any) => {
     if (!timestamp) return '剛剛';
-    return format(timestamp.toDate(), 'MM/dd HH:mm', { locale: zhTW });
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return format(date, 'MM/dd HH:mm', { locale: zhTW });
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'prayers', id));
+      setDeletingId(null);
+    } catch (err) {
+      console.error("Error deleting prayer:", err);
+      setError("刪除失敗，請檢查權限。");
+    }
   };
 
   return (
@@ -236,10 +248,83 @@ function PrayerWallView() {
           prayers.map((prayer) => (
             <div key={prayer.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
               <div className="flex justify-between items-start mb-2">
-                <span className="font-semibold text-gray-800">{prayer.author}</span>
-                <span className="text-xs text-gray-400">{formatDate(prayer.createdAt)}</span>
+                <span className="font-semibold text-gray-800">{prayer.author || '匿名'}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">{formatDate(prayer.createdAt)}</span>
+                  {deletingId === prayer.id ? (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => handleDelete(prayer.id)} className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 transition-colors">確認刪除</button>
+                      <button onClick={() => setDeletingId(null)} className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded hover:bg-gray-300 transition-colors">取消</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setDeletingId(prayer.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
               <p className="text-gray-600 whitespace-pre-wrap text-sm leading-relaxed">{prayer.content}</p>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DevotionsView() {
+  const [devotions, setDevotions] = useState<any[]>([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const q = query(collection(db, 'dailyDevotions'), orderBy('createdAt', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data: any[] = [];
+      snapshot.forEach((doc) => {
+        data.push({ id: doc.id, ...doc.data() });
+      });
+      setDevotions(data);
+    }, (err) => {
+      console.error("Error fetching devotions:", err);
+      setError("無法載入靈修分享，請檢查權限或網路連線。");
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return '剛剛';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return format(date, 'yyyy/MM/dd', { locale: zhTW });
+  };
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-80px)]">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-gray-800">每日活水靈修分享</h2>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm border border-red-100">
+          {error}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto pb-6 space-y-3 pr-1">
+        {devotions.length === 0 ? (
+          <div className="text-center text-gray-500 py-10 bg-white rounded-2xl border border-dashed border-gray-200">
+            <BookOpen size={48} className="mx-auto text-gray-300 mb-3" />
+            <p>目前沒有靈修分享</p>
+          </div>
+        ) : (
+          devotions.map((devotion) => (
+            <div key={devotion.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+              <div className="flex justify-between items-start mb-2">
+                <span className="font-semibold text-indigo-600">每日靈修</span>
+                <span className="text-xs text-gray-400">{formatDate(devotion.createdAt)}</span>
+              </div>
+              <p className="text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">{devotion.content}</p>
             </div>
           ))
         )}
